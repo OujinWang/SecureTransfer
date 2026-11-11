@@ -23,9 +23,9 @@ onMounted(async () => {
 <template>
   <main class="shell">
     <section class="card">
-      <div class="eyebrow">SECURETRANSFER · PHASE 1</div>
+      <div class="eyebrow">SECURETRANSFER</div>
       <h1>安全文件传输</h1>
-      <p class="intro">本地开发环境已就绪。接下来将逐步实现协议、文件传输与安全机制。</p>
+      <p class="intro">安全、可靠的多用户文件传输服务。</p>
       <div class="status" :class="{ online: connected }">
         <span class="dot" />{{ status }}
       </div>
