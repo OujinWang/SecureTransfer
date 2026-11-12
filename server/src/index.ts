@@ -46,19 +46,83 @@ const wss = new WebSocketServer({
   maxPayload: 64 * 1024,
 });
 
-// 为每个 WebSocket 连接注册消息接收与连接关闭事件。
+/** 处理 WebSocket 连接及应用层协议消息。 */
 wss.on("connection", (socket) => {
-  // TODO: 为连接建立心跳检测与超时机制。
-
   console.log("WebSocket client connected");
 
-  socket.on("message", (data) => {
-    console.log("Received:", data.toString());
+  // 统一返回协议错误响应。
+  const sendError = (id: string, code: string, message: string) => {
+    const response: ResponseEnvelope = {
+      version: PROTOCOL_VERSION,
+      type: "response",
+      id,
+      ok: false,
+      error: { code, message },
+    };
+
+    socket.send(JSON.stringify(response));
+  };
+
+  socket.on("message", (data, isBinary) => {
+    // 控制协议使用 JSON 文本消息。
+    if (isBinary) {
+      sendError("unknown", "INVALID_MESSAGE", "Expected a text message");
+      return;
+    }
+
+    let message: unknown;
+
+    try {
+      message = JSON.parse(data.toString());
+    } catch {
+      sendError("unknown", "INVALID_JSON", "Invalid JSON message");
+      return;
+    }
+
+    // 校验请求封装的基本结构。
+    if (
+      typeof message !== "object" ||
+      message === null ||
+      !("version" in message) ||
+      message.version !== PROTOCOL_VERSION ||
+      !("type" in message) ||
+      message.type !== "request" ||
+      !("id" in message) ||
+      typeof message.id !== "string" ||
+      message.id.length === 0 ||
+      message.id.length > 128 ||
+      !("action" in message) ||
+      typeof message.action !== "string" ||
+      !("payload" in message)
+    ) {
+      sendError("unknown", "INVALID_REQUEST", "Invalid request envelope");
+      return;
+    }
+
+    // 根据 action 分发请求。
+    if (message.action === "system.ping") {
+      const response: ResponseEnvelope<{ message: string }> = {
+        version: PROTOCOL_VERSION,
+        type: "response",
+        id: message.id,
+        ok: true,
+        payload: { message: "pong" },
+      };
+
+      socket.send(JSON.stringify(response));
+      return;
+    }
+
+    sendError(message.id, "UNKNOWN_ACTION", "Unsupported action");
   });
 
   socket.on("close", () => {
     console.log("WebSocket client disconnected");
   });
+
+  // TODO: 实现周期性心跳检测和连接超时处理。
+  // TODO: 实现连接身份认证及请求权限检查。
+  // TODO: 增加消息频率和连接数量限制。
 });
 
 // 监听本机回环地址和指定端口。
