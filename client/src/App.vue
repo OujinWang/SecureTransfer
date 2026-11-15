@@ -1,71 +1,45 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { PROTOCOL_VERSION } from "@secure-transfer/shared";
-import type {
-  RequestEnvelope,
-  ResponseEnvelope,
-} from "@secure-transfer/shared";
+import { SecureTransferClient } from "./ws/client";
 
 const status = ref("正在连接服务器…");
 const connected = ref(false);
 
-let socket: WebSocket | null = null;
+const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+const url = `${scheme}://${window.location.host}/ws`;
 
-onMounted(() => {
-  // 根据页面协议自动选择 ws 或 wss。
-  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${scheme}://${window.location.host}/ws`;
+const client = new SecureTransferClient(url);
 
-  socket = new WebSocket(url);
+client.onClose = () => {
+  connected.value = false;
+  status.value = "服务器连接已断开";
+};
 
-  socket.onopen = () => {
-    const request: RequestEnvelope = {
-      version: PROTOCOL_VERSION,
-      type: "request",
-      id: crypto.randomUUID(),
-      action: "system.ping",
-      payload: {},
-    };
+onMounted(async () => {
+  try {
+    await client.connect();
 
-    socket?.send(JSON.stringify(request));
-  };
+    const payload = await client.request("system.ping", {});
 
-  socket.onmessage = (event) => {
-    try {
-      const response = JSON.parse(event.data) as ResponseEnvelope<{
-        message: string;
-      }>;
-
-      if (
-        response.version === PROTOCOL_VERSION &&
-        response.type === "response" &&
-        response.ok &&
-        response.payload?.message === "pong"
-      ) {
-        connected.value = true;
-        status.value = "服务器已连接";
-      } else {
-        status.value = "服务器响应异常";
-      }
-    } catch {
-      status.value = "无法解析服务器响应";
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      !("message" in payload) ||
+      payload.message !== "pong"
+    ) {
+      throw new Error("Invalid ping response");
     }
-  };
 
-  socket.onerror = () => {
+    connected.value = true;
+    status.value = "服务器已连接";
+  } catch {
     connected.value = false;
     status.value = "服务器连接失败";
-  };
-
-  socket.onclose = () => {
-    connected.value = false;
-    status.value = "服务器连接已断开";
-  };
+  }
 });
 
 onUnmounted(() => {
-  socket?.close();
-  socket = null;
+  client.close();
 });
 </script>
 

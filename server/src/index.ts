@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import type {
@@ -49,21 +49,62 @@ const wss = new WebSocketServer({
   maxPayload: 64 * 1024,
 });
 
-/** 注册 WebSocket 连接及消息处理事件。 */
+// 记录每个 WebSocket 连接的心跳状态。
+const alive = new WeakMap<WebSocket, boolean>();
+
+/** 注册 WebSocket 连接及事件处理。 */
 wss.on("connection", (socket) => {
   console.log("WebSocket client connected");
+
+  // 新连接初始视为存活。
+  alive.set(socket, true);
+
+  // 收到 Pong 后更新连接状态。
+  socket.on("pong", () => {
+    alive.set(socket, true);
+    // console.log("Heartbeat: Pong received"); // 测试心跳
+    // console.log("Heartbeat: Pong ignored (test)"); // 测试不跳
+  });
 
   socket.on("message", (data, isBinary) => {
     handleMessage(socket, data, isBinary);
   });
 
   socket.on("close", () => {
+    alive.delete(socket);
     console.log("WebSocket client disconnected");
   });
 
-  // TODO: 实现周期性心跳检测与连接超时处理。
+  socket.on("error", (error) => {
+    console.error("WebSocket connection error:", error);
+  });
+
   // TODO: 实现用户认证及请求权限检查。
   // TODO: 增加连接数与消息频率限制。
+});
+
+/** 定期检测连接存活状态并清理失效连接。 */
+const heartbeatTimer = setInterval(() => {
+  for (const socket of wss.clients) {
+    if (socket.readyState !== WebSocket.OPEN) {
+      continue;
+    }
+
+    // 上一轮心跳未收到 Pong，终止连接。
+    if (!alive.get(socket)) {
+      socket.terminate();
+      continue;
+    }
+
+    // 标记为等待响应，并发送 Ping。
+    alive.set(socket, false);
+    socket.ping();
+  }
+}, 30_000);
+
+// WebSocket 服务关闭时清理定时器。
+wss.on("close", () => {
+  clearInterval(heartbeatTimer);
 });
 
 // 监听本机回环地址和指定端口。
