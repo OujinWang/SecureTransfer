@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
+import { initializeDatabase } from "./db.js";
 
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import type {
@@ -67,7 +68,9 @@ wss.on("connection", (socket) => {
   });
 
   socket.on("message", (data, isBinary) => {
-    handleMessage(socket, data, isBinary);
+    void handleMessage(socket, data, isBinary).catch((error) => {
+      console.error("WebSocket message handling failed:", error);
+    });
   });
 
   socket.on("close", () => {
@@ -106,6 +109,8 @@ const heartbeatTimer = setInterval(() => {
 wss.on("close", () => {
   clearInterval(heartbeatTimer);
 });
+
+initializeDatabase();
 
 // 监听本机回环地址和指定端口。
 server.listen(port, "127.0.0.1", () => {

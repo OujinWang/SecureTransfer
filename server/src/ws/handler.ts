@@ -1,4 +1,6 @@
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
+import { registerUser } from "../auth/register.js";
+import { loginUser } from "../auth/login.js";
 import type {
   RequestEnvelope,
   ResponseEnvelope,
@@ -94,11 +96,11 @@ function sendError(
 }
 
 /** 处理客户端发送的 WebSocket 消息。 */
-export function handleMessage(
+export async function handleMessage(
   socket: WebSocket,
   data: RawData,
   isBinary: boolean,
-): void {
+): Promise<void> {
   const result = parseRequest(data, isBinary);
 
   if (!result.ok) {
@@ -118,6 +120,76 @@ export function handleMessage(
         payload: { message: "pong" },
       });
       break;
+    
+    case "auth.register": {
+      try {
+        const result = await registerUser(request.payload);
+
+        if (!result.ok) {
+          sendError(
+            socket,
+            request.id,
+            result.code,
+            result.message,
+          );
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: result.user,
+        });
+      } catch (error) {
+        console.error("Registration failed:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Internal server error",
+        );
+      }
+
+      break;
+    }
+
+    case "auth.login": {
+      try {
+        const result = await loginUser(request.payload);
+
+        if (!result.ok) {
+          sendError(
+            socket,
+            request.id,
+            result.code,
+            result.message,
+          );
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: result.user,
+        });
+      } catch (error) {
+        console.error("Login failed:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Internal server error",
+        );
+      }
+
+      break;
+    }
 
     default:
       sendError(
