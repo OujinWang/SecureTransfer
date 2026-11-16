@@ -12,6 +12,10 @@ const password = ref("");
 const showPassword = ref(false);
 const submitting = ref(false);
 
+const emit = defineEmits<{
+  authenticated: [user: { id: string; username: string }];
+}>();
+
 const errorMessage = ref("");
 const successMessage = ref("");
 
@@ -44,8 +48,13 @@ async function handleLogin(): Promise<void> {
       throw new Error("Invalid login response");
     }
 
-    successMessage.value = `欢迎回来，${result.username}！身份验证成功。`;
     password.value = "";
+
+    emit("authenticated", {
+      id: result.id,
+      username: result.username,
+    });
+    
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
 
@@ -62,6 +71,10 @@ async function handleLogin(): Promise<void> {
 
       case "Request timed out: auth.login":
         errorMessage.value = "登录请求超时，请稍后重试。";
+        break;
+
+      case "Too many login attempts. Please try again later.":
+        errorMessage.value = "登录尝试过于频繁，请在 15 分钟后重试。";
         break;
 
       default:

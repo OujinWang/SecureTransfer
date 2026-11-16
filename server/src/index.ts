@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { initializeDatabase } from "./db.js";
+import { clearSession } from "./auth/session.js";
 
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import type {
@@ -54,8 +55,8 @@ const wss = new WebSocketServer({
 const alive = new WeakMap<WebSocket, boolean>();
 
 /** 注册 WebSocket 连接及事件处理。 */
-wss.on("connection", (socket) => {
-  console.log("WebSocket client connected");
+wss.on("connection", (socket, request) => {
+  const clientIp = request.socket.remoteAddress ?? "unknown";
 
   // 新连接初始视为存活。
   alive.set(socket, true);
@@ -68,13 +69,14 @@ wss.on("connection", (socket) => {
   });
 
   socket.on("message", (data, isBinary) => {
-    void handleMessage(socket, data, isBinary).catch((error) => {
+    void handleMessage(socket, data, isBinary, clientIp).catch((error) => {
       console.error("WebSocket message handling failed:", error);
     });
   });
 
   socket.on("close", () => {
     alive.delete(socket);
+    clearSession(socket);
     console.log("WebSocket client disconnected");
   });
 

@@ -11,6 +11,10 @@ defineProps<{
   disabled: boolean;
 }>();
 
+const emit = defineEmits<{
+  authenticated: [user: { id: string; username: string }];
+}>();
+
 type AuthMode = "login" | "register";
 
 const mode = ref<AuthMode>("login");
@@ -43,6 +47,7 @@ const mode = ref<AuthMode>("login");
         v-if="mode === 'login'"
         :client="client"
         :disabled="disabled"
+        @authenticated="(user) => emit('authenticated', user)"
       />
 
       <RegisterForm

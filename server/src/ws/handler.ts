@@ -1,6 +1,13 @@
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import { registerUser } from "../auth/register.js";
 import { loginUser } from "../auth/login.js";
+import {
+  clearSession,
+  getSession,
+  setSession,
+} from "../auth/session.js";
+import { allowLoginAttempt } from "../auth/rate-limit.js";
+
 import type {
   RequestEnvelope,
   ResponseEnvelope,
@@ -100,6 +107,7 @@ export async function handleMessage(
   socket: WebSocket,
   data: RawData,
   isBinary: boolean,
+  clientIp: string,
 ): Promise<void> {
   const result = parseRequest(data, isBinary);
 
@@ -160,6 +168,16 @@ export async function handleMessage(
       try {
         const result = await loginUser(request.payload);
 
+        if (!allowLoginAttempt(clientIp)) {
+          sendError(
+            socket,
+            request.id,
+            "RATE_LIMITED",
+            "Too many login attempts. Please try again later.",
+          );
+          break;
+        }
+
         if (!result.ok) {
           sendError(
             socket,
@@ -169,6 +187,8 @@ export async function handleMessage(
           );
           break;
         }
+
+        setSession(socket, result.user);
 
         sendResponse(socket, {
           version: PROTOCOL_VERSION,
@@ -190,6 +210,58 @@ export async function handleMessage(
 
       break;
     }
+
+    case "auth.me": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      sendResponse(socket, {
+        version: PROTOCOL_VERSION,
+        type: "response",
+        id: request.id,
+        ok: true,
+        payload: user,
+      });
+
+      break;
+    }
+
+    case "auth.logout": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      clearSession(socket);
+
+      sendResponse(socket, {
+        version: PROTOCOL_VERSION,
+        type: "response",
+        id: request.id,
+        ok: true,
+        payload: {
+          message: "Logged out",
+        },
+      });
+
+      break;
+    }    
 
     default:
       sendError(

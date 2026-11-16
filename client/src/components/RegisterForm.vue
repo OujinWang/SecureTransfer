@@ -26,11 +26,10 @@ async function handleRegister(): Promise<void> {
     return;
   }
 
-  if (
-    password.value.length < 12 ||
-    new TextEncoder().encode(password.value).length > 128
-  ) {
-    errorMessage.value = "密码至少需要 12 个字符，且不能超过 128 字节。";
+  const passwordLength = [...password.value].length;
+
+  if (passwordLength < 8 || passwordLength > 20) {
+    errorMessage.value = "密码长度需为 8–20 个字符。";
     return;
   }
 
@@ -114,7 +113,7 @@ async function handleRegister(): Promise<void> {
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
             autocomplete="new-password"
-            placeholder="至少 12 个字符"
+            placeholder="8–20 个字符"
             required
             :disabled="disabled || submitting"
           />

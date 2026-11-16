@@ -51,13 +51,13 @@ export async function registerUser(
 
   if (
     typeof password !== "string" ||
-    password.length < 12 ||
-    Buffer.byteLength(password, "utf8") > 128
+    password.length < 8 ||
+    [...password].length > 20
   ) {
     return {
       ok: false,
       code: "INVALID_INPUT",
-      message: "Password must be at least 12 characters and at most 128 bytes",
+      message: "Password must be 8-20 characters long",
     };
   }
 
