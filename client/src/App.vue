@@ -260,21 +260,6 @@ button {
   letter-spacing: -0.5px;
 }
 
-.brand-icon {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  color: #ffffff;
-  background: #1d1d1f;
-  border-radius: 9px;
-}
-
-.brand-icon svg {
-  width: 21px;
-  height: 21px;
-}
-
 /* 主体区域 */
 .main-content {
   flex: 1;

@@ -82,15 +82,15 @@ async function handleRegister(): Promise<void> {
 </script>
 
 <template>
-  <section class="register-card">
-    <div class="card-header">
+  <section class="auth-form-section">
+    <div class="auth-form-header">
       <div>
         <h2>创建账号</h2>
         <p>注册后即可使用安全文件传输服务。</p>
       </div>
     </div>
 
-    <form class="register-form" @submit.prevent="handleRegister">
+    <form class="auth-form" @submit.prevent="handleRegister">
       <div class="field">
         <label for="register-username">用户名</label>
         <input

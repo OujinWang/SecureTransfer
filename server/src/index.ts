@@ -58,6 +58,8 @@ const alive = new WeakMap<WebSocket, boolean>();
 wss.on("connection", (socket, request) => {
   const clientIp = request.socket.remoteAddress ?? "unknown";
 
+  console.log("WebSocket client connected");
+
   // 新连接初始视为存活。
   alive.set(socket, true);
 
