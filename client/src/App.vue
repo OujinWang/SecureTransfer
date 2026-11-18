@@ -3,6 +3,7 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import AuthPanel from "./components/AuthPanel.vue";
 import { SecureTransferClient } from "./ws/client";
+import FileWorkspace from "./components/FileWorkspace.vue";
 
 const connected = ref(false);
 
@@ -110,48 +111,10 @@ onUnmounted(() => {
       class="main-content"
       :class="{ 'workspace-layout': currentUser }"
     >
-      <template v-if="currentUser">
-        <section class="workspace">
-          <div class="workspace-heading">
-            <div>
-              <h1>我的文件</h1>
-              <p>安全管理与共享你的文件。</p>
-            </div>
-          </div>
-
-          <div class="file-panel">
-            <div class="file-panel-header">
-              <h2>文件</h2>
-            </div>
-
-            <div class="file-empty-state">
-              <div class="empty-icon" aria-hidden="true">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" />
-                </svg>
-              </div>
-
-              <h3>文件空间</h3>
-              <p>在这里管理文件传输与共享。</p>
-            </div>
-          </div>
-
-          <p
-            v-if="logoutError"
-            class="workspace-error"
-            role="alert"
-          >
-            {{ logoutError }}
-          </p>
-        </section>
-      </template>
+      <FileWorkspace
+        v-if="currentUser"
+        :client="client"
+      />
 
       <template v-else>
         <div class="page-heading">
@@ -167,9 +130,6 @@ onUnmounted(() => {
       </template>
     </main>
 
-    <footer class="footer">
-      © 2026 SecureTransfer
-    </footer>
   </div>
 </template>
 
@@ -241,9 +201,9 @@ button {
 }
 
 .nav-content {
-  width: min(100% - 48px, 1120px);
+  width: 100%;
   height: 100%;
-  margin: 0 auto;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -267,7 +227,8 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 76px 24px 80px;
+  justify-content: center;
+  padding: 32px 24px;
 }
 
 .page-heading {
@@ -291,21 +252,13 @@ button {
   line-height: 1.6;
 }
 
-/* 页脚 */
-.footer {
-  padding: 24px;
-  color: #a1a1a6;
-  text-align: center;
-  font-size: 12px;
-}
-
 @media (max-width: 600px) {
   .topbar {
     height: 60px;
   }
 
   .nav-content {
-    width: calc(100% - 32px);
+    padding: 0 16px;
   }
 
   .brand {
@@ -313,7 +266,7 @@ button {
   }
 
   .main-content {
-    padding: 56px 16px 64px;
+    padding: 24px 16px;
   }
 
   .page-heading {
@@ -365,95 +318,8 @@ button {
 /* 文件管理页面 */
 .main-content.workspace-layout {
   align-items: stretch;
+  justify-content: flex-start;
   padding-top: 52px;
-}
-
-.workspace {
-  width: 100%;
-  max-width: 960px;
-  margin: 0 auto;
-}
-
-.workspace-heading {
-  margin-bottom: 30px;
-}
-
-.workspace-heading h1 {
-  margin: 0;
-  color: #1d1d1f;
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.8px;
-}
-
-.workspace-heading p {
-  margin: 10px 0 0;
-  color: #6e6e73;
-  font-size: 14px;
-}
-
-.file-panel {
-  min-height: 360px;
-  background: #ffffff;
-  border: 1px solid #e9e9ec;
-  border-radius: 18px;
-  overflow: hidden;
-}
-
-.file-panel-header {
-  padding: 22px 26px;
-  border-bottom: 1px solid #f0f0f2;
-}
-
-.file-panel-header h2 {
-  margin: 0;
-  color: #1d1d1f;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.file-empty-state {
-  min-height: 290px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  text-align: center;
-}
-
-.empty-icon {
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  color: #86868b;
-  background: #f5f5f7;
-  border-radius: 15px;
-}
-
-.empty-icon svg {
-  width: 26px;
-  height: 26px;
-}
-
-.file-empty-state h3 {
-  margin: 18px 0 0;
-  color: #1d1d1f;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.file-empty-state p {
-  margin: 8px 0 0;
-  color: #86868b;
-  font-size: 13px;
-}
-
-.workspace-error {
-  margin-top: 16px;
-  color: #a33340;
-  font-size: 13px;
 }
 
 @media (max-width: 600px) {
@@ -470,10 +336,6 @@ button {
 
   .main-content.workspace-layout {
     padding-top: 36px;
-  }
-
-  .workspace-heading h1 {
-    font-size: 25px;
   }
 }
 

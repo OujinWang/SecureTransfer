@@ -1,4 +1,16 @@
-import { PROTOCOL_VERSION } from "@secure-transfer/shared";
+import {
+  PROTOCOL_VERSION,
+  FILE_CHUNK_SIZE,
+  MAX_FILE_SIZE,
+} from "@secure-transfer/shared";
+
+import type {
+  FileMetadata,
+  FileUploadInitResult,
+  FileUploadCompleteResult,
+  FileListResult,
+} from "@secure-transfer/shared";
+
 import type { RequestEnvelope } from "@secure-transfer/shared";
 
 interface PendingRequest {
@@ -11,6 +23,7 @@ interface PendingRequest {
 export class SecureTransferClient {
   private socket: WebSocket | null = null;
   private readonly pending = new Map<string, PendingRequest>();
+  private uploading = false;
 
   onClose: (() => void) | null = null;
 
@@ -159,6 +172,157 @@ export class SecureTransferClient {
     }
 
     this.pending.clear();
+  }
+
+  /** 等待服务器确认一个文件块。 */
+  private sendChunk(
+    transferId: string,
+    sequence: number,
+    content: Uint8Array,
+  ): Promise<void> {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error("WebSocket is not connected"));
+    }
+
+    const socket = this.socket;
+    const id = `chunk:${transferId}:${sequence}`;
+
+    const frame = new Uint8Array(40 + content.byteLength);
+    const header = new TextEncoder().encode(transferId);
+
+    frame.set(header, 0);
+    new DataView(frame.buffer).setUint32(36, sequence, false);
+    frame.set(content, 40);
+
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error("Upload chunk timed out"));
+      }, this.timeoutMs);
+
+      this.pending.set(id, {
+        resolve: (payload) => {
+          if (
+            typeof payload !== "object" ||
+            payload === null ||
+            !("sequence" in payload) ||
+            payload.sequence !== sequence
+          ) {
+            reject(new Error("Invalid upload acknowledgment"));
+            return;
+          }
+
+          resolve();
+        },
+        reject,
+        timer,
+      });
+
+      try {
+        socket.send(frame);
+      } catch {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new Error("Failed to send upload chunk"));
+      }
+    });
+  }
+
+  /** 上传文件，按确认的分块数量报告进度。 */
+  async uploadFile(
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<FileMetadata> {
+    if (this.uploading) {
+      throw new Error("An upload is already in progress");
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error("File exceeds 100 MiB limit");
+    }
+
+    this.uploading = true;
+    let transferId: string | null = null;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
+
+      const sha256 = Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+
+      const init = await this.request("file.upload.init", {
+        name: file.name,
+        size: file.size,
+        sha256,
+      }) as FileUploadInitResult;
+
+      if (
+        !init ||
+        typeof init.transferId !== "string" ||
+        init.chunkSize !== FILE_CHUNK_SIZE
+      ) {
+        throw new Error("Invalid upload initialization response");
+      }
+
+      transferId = init.transferId;
+      const bytes = new Uint8Array(buffer);
+
+      for (
+        let offset = 0, sequence = 0;
+        offset < bytes.length;
+        offset += FILE_CHUNK_SIZE, sequence++
+      ) {
+        const chunk = bytes.subarray(
+          offset,
+          Math.min(offset + FILE_CHUNK_SIZE, bytes.length),
+        );
+
+        await this.sendChunk(transferId, sequence, chunk);
+
+        onProgress?.(
+          Math.round(
+            ((offset + chunk.byteLength) / bytes.length) * 100,
+          ),
+        );
+      }
+
+      const result = await this.request("file.upload.complete", {
+        transferId,
+      }) as FileUploadCompleteResult;
+
+      if (!result?.file || typeof result.file.id !== "string") {
+        throw new Error("Invalid upload completion response");
+      }
+
+      onProgress?.(100);
+      return result.file;
+    } catch (error) {
+      if (transferId && this.socket?.readyState === WebSocket.OPEN) {
+        await this.request("file.upload.cancel", {
+          transferId,
+        }).catch(() => {});
+      }
+
+      throw error;
+    } finally {
+      this.uploading = false;
+    }
+  }
+
+  /** 获取当前登录用户的文件列表。 */
+  async listFiles(): Promise<FileMetadata[]> {
+    const result = await this.request(
+      "file.list",
+      {},
+    ) as FileListResult;
+
+    if (!result || !Array.isArray(result.files)) {
+      throw new Error("Invalid file list response");
+    }
+
+    return result.files;
   }
 
   /** 关闭连接并清理等待中的请求。 */

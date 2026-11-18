@@ -25,6 +25,22 @@ export function initializeDatabase(): void {
       salt BLOB NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      storage_name TEXT NOT NULL UNIQUE,
+      size INTEGER NOT NULL CHECK (size >= 0),
+      sha256 TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_files_owner_created
+      ON files(owner_id, created_at DESC);
   `);
 
   console.log("Database initialized");

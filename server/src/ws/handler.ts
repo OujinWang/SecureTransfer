@@ -8,6 +8,15 @@ import {
 } from "../auth/session.js";
 import { allowLoginAttempt } from "../auth/rate-limit.js";
 
+import { listFiles } from "../files/list.js";
+
+import {
+  initializeUpload,
+  cancelUpload,
+  receiveUploadChunk,
+  completeUpload,
+} from "../files/upload.js";
+
 import type {
   RequestEnvelope,
   ResponseEnvelope,
@@ -109,6 +118,57 @@ export async function handleMessage(
   isBinary: boolean,
   clientIp: string,
 ): Promise<void> {
+  if (isBinary) {
+    const user = getSession(socket);
+
+    if (!user) {
+      sendError(
+        socket,
+        "unknown",
+        "UNAUTHORIZED",
+        "Authentication required",
+      );
+      return;
+    }
+
+    try {
+      const buffer = Buffer.isBuffer(data)
+        ? data
+        : Buffer.concat(
+            Array.isArray(data) ? data : [Buffer.from(data)],
+          );
+
+      const result = await receiveUploadChunk(socket, buffer);
+
+      if (!result.ok) {
+        sendError(socket, "unknown", result.code, result.message);
+        return;
+      }
+
+      sendResponse(socket, {
+        version: PROTOCOL_VERSION,
+        type: "response",
+        id: `chunk:${result.data.transferId}:${result.data.sequence}`,
+        ok: true,
+        payload: result.data,
+      });
+    } catch (error) {
+      console.error("Upload chunk failed:", error);
+
+      await cancelUpload(socket).catch(console.error);
+
+      sendError(
+        socket,
+        "unknown",
+        "INTERNAL_ERROR",
+        "Failed to process upload chunk",
+      );
+    }
+
+    return;
+  }
+
+
   const result = parseRequest(data, isBinary);
 
   if (!result.ok) {
@@ -166,8 +226,6 @@ export async function handleMessage(
 
     case "auth.login": {
       try {
-        const result = await loginUser(request.payload);
-
         if (!allowLoginAttempt(clientIp)) {
           sendError(
             socket,
@@ -177,6 +235,8 @@ export async function handleMessage(
           );
           break;
         }
+
+        const result = await loginUser(request.payload);
 
         if (!result.ok) {
           sendError(
@@ -248,6 +308,12 @@ export async function handleMessage(
         break;
       }
 
+      try {
+        await cancelUpload(socket);
+      } catch (error) {
+        console.error("Failed to cancel upload on logout:", error);
+      }
+
       clearSession(socket);
 
       sendResponse(socket, {
@@ -262,6 +328,229 @@ export async function handleMessage(
 
       break;
     }    
+
+    case "file.list": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      try {
+        const files = listFiles(user.id);
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { files },
+        });
+      } catch (error) {
+        console.error("Failed to list files:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Internal server error",
+        );
+      }
+
+      break;
+    }
+
+
+    case "file.upload.init": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      try {
+        const result = await initializeUpload(
+          socket,
+          user.id,
+          request.payload,
+        );
+
+        if (!result.ok) {
+          sendError(
+            socket,
+            request.id,
+            result.code,
+            result.message,
+          );
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: result.data,
+        });
+      } catch (error) {
+        console.error("Upload initialization failed:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Internal server error",
+        );
+      }
+
+      break;
+    }
+
+    case "file.upload.cancel": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("transferId" in payload) ||
+        typeof payload.transferId !== "string"
+      ) {
+        sendError(
+          socket,
+          request.id,
+          "INVALID_REQUEST",
+          "Invalid transfer ID",
+        );
+        break;
+      }
+
+      try {
+        const cancelled = await cancelUpload(
+          socket,
+          payload.transferId,
+        );
+
+        if (!cancelled) {
+          sendError(
+            socket,
+            request.id,
+            "TRANSFER_NOT_FOUND",
+            "Upload not found",
+          );
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { cancelled: true },
+        });
+      } catch (error) {
+        console.error("Upload cancellation failed:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Internal server error",
+        );
+      }
+
+      break;
+    }
+
+    case "file.upload.complete": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("transferId" in payload) ||
+        typeof payload.transferId !== "string"
+      ) {
+        sendError(
+          socket,
+          request.id,
+          "INVALID_REQUEST",
+          "Invalid transfer ID",
+        );
+        break;
+      }
+
+      try {
+        const result = await completeUpload(
+          socket,
+          payload.transferId,
+        );
+
+        if (!result.ok) {
+          sendError(
+            socket,
+            request.id,
+            result.code,
+            result.message,
+          );
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: result.data,
+        });
+      } catch (error) {
+        console.error("Upload completion failed:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Internal server error",
+        );
+      }
+
+      break;
+    }
 
     default:
       sendError(

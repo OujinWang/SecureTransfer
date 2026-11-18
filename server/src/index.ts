@@ -2,14 +2,17 @@ import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { initializeDatabase } from "./db.js";
 import { clearSession } from "./auth/session.js";
+import { handleMessage } from "./ws/handler.js";
+import {
+  cancelUpload,
+  cleanupExpiredUpload,
+} from "./files/upload.js";
 
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import type {
   HealthPayload,
   ResponseEnvelope,
 } from "@secure-transfer/shared";
-
-import { handleMessage } from "./ws/handler.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -63,6 +66,16 @@ wss.on("connection", (socket, request) => {
   // 新连接初始视为存活。
   alive.set(socket, true);
 
+  let messageQueue = Promise.resolve();
+
+  const uploadTimer = setInterval(() => {
+    messageQueue = messageQueue
+      .then(() => cleanupExpiredUpload(socket))
+      .catch((error) => {
+        console.error("Upload timeout cleanup failed:", error);
+      });
+  }, 30_000);
+
   // 收到 Pong 后更新连接状态。
   socket.on("pong", () => {
     alive.set(socket, true);
@@ -71,14 +84,25 @@ wss.on("connection", (socket, request) => {
   });
 
   socket.on("message", (data, isBinary) => {
-    void handleMessage(socket, data, isBinary, clientIp).catch((error) => {
-      console.error("WebSocket message handling failed:", error);
-    });
+    messageQueue = messageQueue
+      .then(() => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        return handleMessage(socket, data, isBinary, clientIp);
+      })
+      .catch((error) => {
+        console.error("WebSocket message handling failed:", error);
+      });
   });
 
   socket.on("close", () => {
+    clearInterval(uploadTimer);
     alive.delete(socket);
     clearSession(socket);
+
+    void messageQueue.finally(() => cancelUpload(socket)).catch((error) => {
+      console.error("Failed to clean up upload:", error);
+    });
+
     console.log("WebSocket client disconnected");
   });
 
