@@ -14,7 +14,10 @@ import type {
 
 import type { RequestEnvelope } from "@secure-transfer/shared";
 
+const SESSION_TOKEN_KEY = "secure-transfer.session-token";
+
 interface PendingRequest {
+  action: string;
   resolve: (payload: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -115,7 +118,7 @@ export class SecureTransferClient {
         reject(new Error(`Request timed out: ${action}`));
       }, this.timeoutMs);
 
-      this.pending.set(request.id, { resolve, reject, timer });
+      this.pending.set(request.id, { action, resolve, reject, timer });
 
       try {
         this.socket!.send(JSON.stringify(request));
@@ -188,6 +191,30 @@ export class SecureTransferClient {
     this.pending.delete(response.id);
 
     if (response.ok) {
+      if (pending.action === "auth.login") {
+        const payload = response.payload;
+
+        if (
+          typeof payload !== "object" ||
+          payload === null ||
+          !("sessionToken" in payload) ||
+          typeof payload.sessionToken !== "string" ||
+          !/^[a-f0-9]{64}$/.test(payload.sessionToken)
+        ) {
+          pending.reject(new Error("Invalid login response"));
+          return;
+        }
+
+        sessionStorage.setItem(
+          SESSION_TOKEN_KEY,
+          payload.sessionToken,
+        );
+      }
+
+      if (pending.action === "auth.logout") {
+        sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      }
+
       pending.resolve(response.payload);
     } else {
       const error = response.error;
@@ -243,6 +270,7 @@ export class SecureTransferClient {
       }, this.timeoutMs);
 
       this.pending.set(id, {
+        action: "file.upload.chunk",
         resolve: (payload) => {
           if (
             typeof payload !== "object" ||
@@ -526,6 +554,44 @@ export class SecureTransferClient {
       }
 
       this.downloading = false;
+    }
+  }
+
+
+  /** 刷新页面后尝试恢复登录身份。 */
+  async restoreSession(): Promise<{
+    id: string;
+    username: string;
+  } | null> {
+    const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+
+    if (!token) {
+      return null;
+    }
+
+    try {
+      const result = await this.request("auth.restore", {
+        token,
+      });
+
+      if (
+        typeof result !== "object" ||
+        result === null ||
+        !("id" in result) ||
+        typeof result.id !== "string" ||
+        !("username" in result) ||
+        typeof result.username !== "string"
+      ) {
+        throw new Error("Invalid session response");
+      }
+
+      return {
+        id: result.id,
+        username: result.username,
+      };
+    } catch {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      return null;
     }
   }
 

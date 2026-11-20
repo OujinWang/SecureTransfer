@@ -67,6 +67,12 @@ onMounted(async () => {
     }
 
     connected.value = true;
+
+    const restoredUser = await client.restoreSession();
+
+    if (restoredUser) {
+      currentUser.value = restoredUser;
+    }
   } catch {
     connected.value = false;
   }

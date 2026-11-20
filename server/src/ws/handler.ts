@@ -2,9 +2,10 @@ import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import { registerUser } from "../auth/register.js";
 import { loginUser } from "../auth/login.js";
 import {
-  clearSession,
+  createSession,
+  restoreSession,
   getSession,
-  setSession,
+  revokeSession,
 } from "../auth/session.js";
 import { allowLoginAttempt } from "../auth/rate-limit.js";
 
@@ -254,14 +255,17 @@ export async function handleMessage(
           break;
         }
 
-        setSession(socket, result.user);
+        const sessionToken = createSession(socket, result.user);
 
         sendResponse(socket, {
           version: PROTOCOL_VERSION,
           type: "response",
           id: request.id,
           ok: true,
-          payload: result.user,
+          payload: {
+            ...result.user,
+            sessionToken,
+          },
         });
       } catch (error) {
         console.error("Login failed:", error);
@@ -273,6 +277,47 @@ export async function handleMessage(
           "Internal server error",
         );
       }
+
+      break;
+    }
+
+    case "auth.restore": {
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("token" in payload) ||
+        typeof payload.token !== "string"
+      ) {
+        sendError(
+          socket,
+          request.id,
+          "INVALID_REQUEST",
+          "Invalid session token",
+        );
+        break;
+      }
+
+      const user = restoreSession(socket, payload.token);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Session expired or invalid",
+        );
+        break;
+      }
+
+      sendResponse(socket, {
+        version: PROTOCOL_VERSION,
+        type: "response",
+        id: request.id,
+        ok: true,
+        payload: user,
+      });
 
       break;
     }
@@ -321,7 +366,7 @@ export async function handleMessage(
       }
 
       await closeDownload(socket);
-      clearSession(socket);
+      revokeSession(socket);
 
       sendResponse(socket, {
         version: PROTOCOL_VERSION,
