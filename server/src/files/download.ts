@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FILE_CHUNK_SIZE } from "@secure-transfer/shared";
 import { db } from "../db.js";
+import { constants } from "node:fs";
 
 import type { FileHandle } from "node:fs/promises";
 import type {
@@ -84,20 +85,33 @@ export async function initializeDownload(
     return failure("FILE_NOT_FOUND", "File not found");
   }
 
-  if (!/^[0-9a-f-]{36}$/i.test(row.storage_name)) {
+  const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (!UUID_PATTERN.test(row.storage_name)) {
     return failure("INVALID_FILE", "Invalid stored file");
   }
 
   let handle: FileHandle;
 
   try {
-    handle = await open(join(filesDirectory, row.storage_name), "r");
+    handle = await open(
+      join(filesDirectory, row.storage_name),
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return failure("FILE_NOT_FOUND", "Stored file not found");
+      const code = (error as NodeJS.ErrnoException).code;
+
+      if (code === "ENOENT") {
+        return failure("FILE_NOT_FOUND", "Stored file not found");
+      }
+
+      if (code === "ELOOP") {
+        return failure("INVALID_FILE", "Symbolic links are not allowed");
+      }
+
+      throw error;
     }
-    throw error;
-  }
 
   try {
     const stat = await handle.stat();

@@ -69,6 +69,14 @@ export async function loginUser(
   const salt = user?.salt ?? Buffer.alloc(16);
   const expectedHash = user?.password_hash ?? Buffer.alloc(64);
 
+  if (salt.length !== 16 || expectedHash.length !== 64) {
+    return {
+      ok: false,
+      code: "INVALID_CREDENTIALS",
+      message: "Invalid username or password",
+    };
+  }
+
   const derivedHash = await deriveKey(
     password,
     salt,

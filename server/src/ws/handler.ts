@@ -243,7 +243,15 @@ export async function handleMessage(
 
     case "auth.login": {
       try {
-        if (!allowLoginAttempt(clientIp)) {
+        if (!allowLoginAttempt(
+            clientIp,
+            typeof request.payload === "object" &&
+              request.payload !== null &&
+              !Array.isArray(request.payload) &&
+              typeof (request.payload as Record<string, unknown>).username === "string"
+              ? (request.payload as Record<string, string>).username
+              : "",
+          )) {
           sendError(
             socket,
             request.id,

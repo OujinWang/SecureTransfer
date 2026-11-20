@@ -51,8 +51,9 @@ export async function registerUser(
 
   if (
     typeof password !== "string" ||
-    password.length < 8 ||
-    [...password].length > 20
+    [...password].length < 8 ||
+    [...password].length > 20 ||
+    Buffer.byteLength(password, "utf8") > 128
   ) {
     return {
       ok: false,

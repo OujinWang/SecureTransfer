@@ -4,25 +4,29 @@ interface LoginAttemptRecord {
 }
 
 const WINDOW_MS = 15 * 60 * 1000;
-const MAX_ATTEMPTS = 10;
+const MAX_ATTEMPTS_PER_IP = 30;
+const MAX_ATTEMPTS_PER_ACCOUNT = 10;
 
-const attempts = new Map<string, LoginAttemptRecord>();
+const ipAttempts = new Map<string, LoginAttemptRecord>();
+const accountAttempts = new Map<string, LoginAttemptRecord>();
 
-/** 限制同一 IP 在固定时间窗口内的登录尝试次数。 */
-export function allowLoginAttempt(ip: string): boolean {
-  const now = Date.now();
-  const record = attempts.get(ip);
+function isAllowed(
+  records: Map<string, LoginAttemptRecord>,
+  key: string,
+  limit: number,
+  now: number,
+): boolean {
+  const record = records.get(key);
 
   if (!record || now >= record.resetAt) {
-    attempts.set(ip, {
+    records.set(key, {
       count: 1,
       resetAt: now + WINDOW_MS,
     });
-
     return true;
   }
 
-  if (record.count >= MAX_ATTEMPTS) {
+  if (record.count >= limit) {
     return false;
   }
 
@@ -30,13 +34,42 @@ export function allowLoginAttempt(ip: string): boolean {
   return true;
 }
 
-// 定期清理过期记录，避免长期占用内存。
+/** 同时限制来源 IP 和目标账号的登录尝试。 */
+export function allowLoginAttempt(
+  ip: string,
+  username: string,
+): boolean {
+  const now = Date.now();
+  const accountKey = username.toLowerCase();
+
+  // 两个维度都必须通过，且每次尝试均计入 IP 维度。
+  const ipAllowed = isAllowed(
+    ipAttempts,
+    ip,
+    MAX_ATTEMPTS_PER_IP,
+    now,
+  );
+
+  if (!ipAllowed) {
+    return false;
+  }
+
+  return isAllowed(
+    accountAttempts,
+    accountKey,
+    MAX_ATTEMPTS_PER_ACCOUNT,
+    now,
+  );
+}
+
 const cleanupTimer = setInterval(() => {
   const now = Date.now();
 
-  for (const [ip, record] of attempts) {
-    if (now >= record.resetAt) {
-      attempts.delete(ip);
+  for (const records of [ipAttempts, accountAttempts]) {
+    for (const [key, record] of records) {
+      if (now >= record.resetAt) {
+        records.delete(key);
+      }
     }
   }
 }, WINDOW_MS);

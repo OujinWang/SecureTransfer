@@ -316,12 +316,22 @@ export async function completeUpload(
         },
       },
     };
-  } catch (error) {
+  }catch (error) {
+    await cancelUpload(socket).catch((cleanupError) => {
+      console.error("Failed to clean up upload:", cleanupError);
+    });
+
     if (storagePath) {
-      await unlink(storagePath).catch(() => {});
+      await unlink(storagePath).catch((cleanupError: NodeJS.ErrnoException) => {
+        if (cleanupError.code !== "ENOENT") {
+          console.error(
+            "Failed to remove stored file after upload error:",
+            cleanupError,
+          );
+        }
+      });
     }
 
-    await cancelUpload(socket).catch(() => {});
     throw error;
   }
 }

@@ -1,4 +1,3 @@
-
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +10,9 @@ interface StoredFile {
 const filesDirectory = fileURLToPath(
   new URL("../../data/files/", import.meta.url),
 );
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * 删除当前用户拥有的文件。
@@ -30,9 +32,23 @@ export async function deleteOwnedFile(
     return false;
   }
 
-  // 防止数据库中的异常路径导致删除存储目录以外的文件。
-  if (!/^[0-9a-f-]{36}$/i.test(file.storage_name)) {
+  if (!UUID_PATTERN.test(file.storage_name)) {
     throw new Error("Invalid stored file name");
+  }
+
+  // 事务内再次检查所有权并删除记录。
+  // file_shares 记录由外键 ON DELETE CASCADE 自动清理。
+  const deleted = db.transaction(() => {
+    const result = db.prepare(`
+      DELETE FROM files
+      WHERE id = ? AND owner_id = ?
+    `).run(fileId, ownerId);
+
+    return result.changes > 0;
+  })();
+
+  if (!deleted) {
+    return false;
   }
 
   const filePath = join(filesDirectory, file.storage_name);
@@ -40,16 +56,12 @@ export async function deleteOwnedFile(
   try {
     await unlink(filePath);
   } catch (error) {
-    // 磁盘文件已经不存在时，仍然允许清理数据库记录。
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+
+    if (code !== "ENOENT") {
+      console.error("Failed to remove deleted file:", error);
     }
   }
-
-  db.prepare(`
-    DELETE FROM files
-    WHERE id = ? AND owner_id = ?
-  `).run(fileId, ownerId);
 
   return true;
 }
