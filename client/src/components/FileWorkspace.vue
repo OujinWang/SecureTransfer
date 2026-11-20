@@ -17,6 +17,7 @@ const progress = ref(0);
 const errorMessage = ref("");
 const successMessage = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
+const deletingId = ref<string | null>(null);
 
 function formatSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -91,6 +92,31 @@ async function handleDownload(file: FileMetadata): Promise<void> {
     errorMessage.value = "文件下载失败，请检查网络连接后重试。";
   } finally {
     downloadingId.value = null;
+  }
+}
+
+async function handleDelete(file: FileMetadata): Promise<void> {
+  if (deletingId.value) return;
+
+  const confirmed = window.confirm(
+    `确定要永久删除「${file.originalName}」吗？\n删除后无法恢复。`,
+  );
+
+  if (!confirmed) return;
+
+  deletingId.value = file.id;
+  errorMessage.value = "";
+  successMessage.value = "";
+
+  try {
+    await props.client.deleteFile(file.id);
+
+    successMessage.value = `文件「${file.originalName}」已删除。`;
+    await refreshFiles();
+  } catch {
+    errorMessage.value = "删除失败，请稍后重试。";
+  } finally {
+    deletingId.value = null;
   }
 }
 
@@ -211,6 +237,14 @@ onMounted(() => {
                 ? `下载中 ${downloadProgress}%`
                 : "下载"
             }}
+          </button>
+          <button
+            class="delete-button"
+            type="button"
+            :disabled="deletingId !== null || downloadingId !== null"
+            @click="handleDelete(file)"
+          >
+            {{ deletingId === file.id ? "删除中…" : "删除" }}
           </button>
         </div>
       </div>
@@ -419,6 +453,27 @@ onMounted(() => {
   margin-top: 5px;
   color: #86868b;
   font-size: 12px;
+}
+
+.delete-button {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  color: #a33340;
+  background: transparent;
+  border: 1px solid #e9e9ec;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.delete-button:hover:not(:disabled) {
+  background: #fff0f1;
+  border-color: #f1d1d5;
+}
+
+.delete-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 600px) {

@@ -381,6 +381,22 @@ export class SecureTransferClient {
     }
   }
 
+  /** 删除当前用户拥有的文件。 */
+  async deleteFile(fileId: string): Promise<void> {
+    const result = await this.request("file.delete", {
+      fileId,
+    });
+
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("deleted" in result) ||
+      result.deleted !== true
+    ) {
+      throw new Error("File deletion failed");
+    }
+  }
+
   /** 获取当前登录用户的文件列表。 */
   async listFiles(): Promise<FileMetadata[]> {
     const result = await this.request(

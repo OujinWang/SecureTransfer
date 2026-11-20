@@ -24,6 +24,8 @@ import {
   closeDownload,
 } from "../files/download.js";
 
+import { deleteOwnedFile } from "../files/delete.js";
+
 import type {
   RequestEnvelope,
   ResponseEnvelope,
@@ -740,6 +742,74 @@ export async function handleMessage(
       } catch (error) {
         console.error("Download completion failed:", error);
         sendError(socket, request.id, "INTERNAL_ERROR", "Internal server error");
+      }
+
+      break;
+    }
+
+    case "file.delete": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(
+          socket,
+          request.id,
+          "UNAUTHORIZED",
+          "Authentication required",
+        );
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("fileId" in payload) ||
+        typeof payload.fileId !== "string" ||
+        !/^[0-9a-f-]{36}$/i.test(payload.fileId)
+      ) {
+        sendError(
+          socket,
+          request.id,
+          "INVALID_REQUEST",
+          "Invalid file ID",
+        );
+        break;
+      }
+
+      try {
+        const deleted = await deleteOwnedFile(
+          user.id,
+          payload.fileId,
+        );
+
+        if (!deleted) {
+          sendError(
+            socket,
+            request.id,
+            "FILE_NOT_FOUND",
+            "File not found",
+          );
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { deleted: true },
+        });
+      } catch (error) {
+        console.error("File deletion failed:", error);
+
+        sendError(
+          socket,
+          request.id,
+          "INTERNAL_ERROR",
+          "Failed to delete file",
+        );
       }
 
       break;
