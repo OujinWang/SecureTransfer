@@ -17,6 +17,12 @@ import {
   completeUpload,
 } from "../files/upload.js";
 
+import {
+  initializeDownload,
+  readDownloadChunk,
+  closeDownload,
+} from "../files/download.js";
+
 import type {
   RequestEnvelope,
   ResponseEnvelope,
@@ -314,6 +320,7 @@ export async function handleMessage(
         console.error("Failed to cancel upload on logout:", error);
       }
 
+      await closeDownload(socket);
       clearSession(socket);
 
       sendResponse(socket, {
@@ -547,6 +554,147 @@ export async function handleMessage(
           "INTERNAL_ERROR",
           "Internal server error",
         );
+      }
+
+      break;
+    }
+
+    case "file.download.init": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("fileId" in payload) ||
+        typeof payload.fileId !== "string"
+      ) {
+        sendError(socket, request.id, "INVALID_REQUEST", "Invalid file ID");
+        break;
+      }
+
+      try {
+        const result = await initializeDownload(socket, user.id, payload.fileId);
+
+        if (!result.ok) {
+          sendError(socket, request.id, result.code, result.message);
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: result.data,
+        });
+      } catch (error) {
+        console.error("Download initialization failed:", error);
+        sendError(socket, request.id, "INTERNAL_ERROR", "Internal server error");
+      }
+
+      break;
+    }
+
+    case "file.download.chunk": {
+      if (!getSession(socket)) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("transferId" in payload) ||
+        typeof payload.transferId !== "string" ||
+        !("sequence" in payload) ||
+        typeof payload.sequence !== "number"
+      ) {
+        sendError(socket, request.id, "INVALID_REQUEST", "Invalid chunk request");
+        break;
+      }
+
+      try {
+        const result = await readDownloadChunk(
+          socket,
+          payload.transferId,
+          payload.sequence,
+        );
+
+        if (!result.ok) {
+          sendError(socket, request.id, result.code, result.message);
+          break;
+        }
+
+        const { transferId, sequence, chunk } = result.data;
+
+        const frame = Buffer.allocUnsafe(40 + chunk.length);
+        frame.write(transferId, 0, 36, "ascii");
+        frame.writeUInt32BE(sequence, 36);
+        chunk.copy(frame, 40);
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { transferId, sequence, length: chunk.length },
+        });
+
+        socket.send(frame);
+      } catch (error) {
+        console.error("Download chunk failed:", error);
+        await closeDownload(socket).catch(console.error);
+        sendError(socket, request.id, "INTERNAL_ERROR", "Internal server error");
+      }
+
+      break;
+    }
+
+    case "file.download.complete": {
+      if (!getSession(socket)) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("transferId" in payload) ||
+        typeof payload.transferId !== "string"
+      ) {
+        sendError(socket, request.id, "INVALID_REQUEST", "Invalid transfer ID");
+        break;
+      }
+
+      try {
+        const closed = await closeDownload(socket, payload.transferId);
+
+        if (!closed) {
+          sendError(socket, request.id, "TRANSFER_NOT_FOUND", "Download not found");
+          break;
+        }
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { completed: true },
+        });
+      } catch (error) {
+        console.error("Download completion failed:", error);
+        sendError(socket, request.id, "INTERNAL_ERROR", "Internal server error");
       }
 
       break;

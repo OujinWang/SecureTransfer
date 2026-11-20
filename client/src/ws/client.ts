@@ -9,6 +9,7 @@ import type {
   FileUploadInitResult,
   FileUploadCompleteResult,
   FileListResult,
+  FileDownloadInitResult,
 } from "@secure-transfer/shared";
 
 import type { RequestEnvelope } from "@secure-transfer/shared";
@@ -19,11 +20,21 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingDownloadChunk {
+  transferId: string;
+  sequence: number;
+  resolve: (chunk: ArrayBuffer) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 /** 管理 WebSocket 连接及请求与响应的匹配。 */
 export class SecureTransferClient {
   private socket: WebSocket | null = null;
   private readonly pending = new Map<string, PendingRequest>();
   private uploading = false;
+  private downloading = false;
+  private pendingDownload: PendingDownloadChunk | null = null;
 
   onClose: (() => void) | null = null;
 
@@ -39,6 +50,7 @@ export class SecureTransferClient {
     }
 
     const socket = new WebSocket(this.url);
+    socket.binaryType = "arraybuffer";
     this.socket = socket;
 
     socket.addEventListener("message", (event) => {
@@ -51,6 +63,7 @@ export class SecureTransferClient {
       }
 
       this.rejectPending(new Error("Connection closed"));
+      this.rejectDownload(new Error("Connection closed"));
       this.onClose?.();
     });
 
@@ -116,6 +129,35 @@ export class SecureTransferClient {
 
   /** 根据响应 ID 找到对应的请求。 */
   private handleMessage(data: unknown): void {
+    if (data instanceof ArrayBuffer) {
+      const pending = this.pendingDownload;
+
+      if (!pending) return;
+
+      if (data.byteLength < 40) {
+        this.rejectDownload(new Error("Invalid download frame"));
+        return;
+      }
+
+      const transferId = new TextDecoder().decode(
+        new Uint8Array(data, 0, 36),
+      );
+      const sequence = new DataView(data).getUint32(36, false);
+
+      if (
+        transferId !== pending.transferId ||
+        sequence !== pending.sequence
+      ) {
+        this.rejectDownload(new Error("Unexpected download chunk"));
+        return;
+      }
+
+      clearTimeout(pending.timer);
+      this.pendingDownload = null;
+      pending.resolve(data.slice(40));
+      return;
+    }
+
     if (typeof data !== "string") return;
 
     let value: unknown;
@@ -325,9 +367,172 @@ export class SecureTransferClient {
     return result.files;
   }
 
+  /** 终止正在等待的下载分块。 */
+  private rejectDownload(error: Error): void {
+    const pending = this.pendingDownload;
+
+    if (!pending) return;
+
+    clearTimeout(pending.timer);
+    this.pendingDownload = null;
+    pending.reject(error);
+  }
+
+  /** 等待指定的二进制文件块。 */
+  private waitForDownloadChunk(
+    transferId: string,
+    sequence: number,
+  ): Promise<ArrayBuffer> {
+    if (this.pendingDownload) {
+      return Promise.reject(new Error("Another download chunk is pending"));
+    }
+
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.rejectDownload(new Error("Download chunk timed out"));
+      }, this.timeoutMs);
+
+      this.pendingDownload = {
+        transferId,
+        sequence,
+        resolve,
+        reject,
+        timer,
+      };
+    });
+  }
+
+  /** 分块下载文件、验证 SHA-256 并保存到本地。 */
+  async downloadFile(
+    fileId: string,
+    onProgress?: (percent: number) => void,
+  ): Promise<void> {
+    if (this.downloading) {
+      throw new Error("A download is already in progress");
+    }
+
+    this.downloading = true;
+    let transferId: string | null = null;
+
+    try {
+      const init = await this.request("file.download.init", {
+        fileId,
+      }) as FileDownloadInitResult;
+
+      if (
+        !init ||
+        typeof init.transferId !== "string" ||
+        init.chunkSize !== FILE_CHUNK_SIZE ||
+        !init.file ||
+        init.file.id !== fileId ||
+        !Number.isSafeInteger(init.file.size) ||
+        init.file.size < 0 ||
+        init.file.size > MAX_FILE_SIZE ||
+        typeof init.file.originalName !== "string" ||
+        typeof init.file.sha256 !== "string" ||
+        !/^[a-fA-F0-9]{64}$/.test(init.file.sha256)
+      ) {
+        throw new Error("Invalid download initialization response");
+      }
+
+      transferId = init.transferId;
+
+      const chunks: ArrayBuffer[] = [];
+      let received = 0;
+      let sequence = 0;
+
+      while (received < init.file.size) {
+        const chunkPromise = this.waitForDownloadChunk(
+          transferId,
+          sequence,
+        );
+
+        const [ack, chunk] = await Promise.all([
+          this.request("file.download.chunk", {
+            transferId,
+            sequence,
+          }),
+          chunkPromise,
+        ]);
+
+        if (
+          typeof ack !== "object" ||
+          ack === null ||
+          !("sequence" in ack) ||
+          ack.sequence !== sequence ||
+          !("length" in ack) ||
+          ack.length !== chunk.byteLength ||
+          chunk.byteLength === 0 ||
+          chunk.byteLength > FILE_CHUNK_SIZE ||
+          received + chunk.byteLength > init.file.size
+        ) {
+          throw new Error("Invalid download chunk");
+        }
+
+        chunks.push(chunk);
+        received += chunk.byteLength;
+        sequence++;
+
+        onProgress?.(
+          Math.round((received / init.file.size) * 100),
+        );
+      }
+
+      const blob = new Blob(chunks, {
+        type: "application/octet-stream",
+      });
+
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        await blob.arrayBuffer(),
+      );
+
+      const sha256 = Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+
+      if (sha256 !== init.file.sha256.toLowerCase()) {
+        throw new Error("Downloaded file SHA-256 mismatch");
+      }
+
+      await this.request("file.download.complete", {
+        transferId,
+      });
+
+      transferId = null;
+
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = init.file.originalName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+
+      onProgress?.(100);
+    } finally {
+      this.rejectDownload(new Error("Download ended"));
+
+      if (
+        transferId &&
+        this.socket?.readyState === WebSocket.OPEN
+      ) {
+        await this.request("file.download.complete", {
+          transferId,
+        }).catch(() => {});
+      }
+
+      this.downloading = false;
+    }
+  }
+
   /** 关闭连接并清理等待中的请求。 */
   close(): void {
     this.rejectPending(new Error("Client closed"));
+    this.rejectDownload(new Error("Client closed"));
     this.socket?.close();
     this.socket = null;
   }

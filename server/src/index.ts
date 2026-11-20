@@ -7,6 +7,10 @@ import {
   cancelUpload,
   cleanupExpiredUpload,
 } from "./files/upload.js";
+import {
+  closeDownload,
+  cleanupExpiredDownload,
+} from "./files/download.js";
 
 import { PROTOCOL_VERSION } from "@secure-transfer/shared";
 import type {
@@ -70,7 +74,10 @@ wss.on("connection", (socket, request) => {
 
   const uploadTimer = setInterval(() => {
     messageQueue = messageQueue
-      .then(() => cleanupExpiredUpload(socket))
+      .then(async () => {
+        await cleanupExpiredUpload(socket);
+        await cleanupExpiredDownload(socket);
+      })
       .catch((error) => {
         console.error("Upload timeout cleanup failed:", error);
       });
@@ -99,9 +106,14 @@ wss.on("connection", (socket, request) => {
     alive.delete(socket);
     clearSession(socket);
 
-    void messageQueue.finally(() => cancelUpload(socket)).catch((error) => {
-      console.error("Failed to clean up upload:", error);
-    });
+    void messageQueue
+      .finally(async () => {
+        await cancelUpload(socket);
+        await closeDownload(socket);
+      })
+      .catch((error) => {
+        console.error("Failed to clean up transfers:", error);
+      });
 
     console.log("WebSocket client disconnected");
   });

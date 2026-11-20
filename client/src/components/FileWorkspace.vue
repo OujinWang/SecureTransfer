@@ -11,6 +11,8 @@ const props = defineProps<{
 const files = ref<FileMetadata[]>([]);
 const loading = ref(false);
 const uploading = ref(false);
+const downloadingId = ref<string | null>(null);
+const downloadProgress = ref(0);
 const progress = ref(0);
 const errorMessage = ref("");
 const successMessage = ref("");
@@ -71,6 +73,24 @@ async function handleFileChange(event: Event): Promise<void> {
   } finally {
     uploading.value = false;
     input.value = "";
+  }
+}
+
+async function handleDownload(file: FileMetadata): Promise<void> {
+  if (downloadingId.value) return;
+
+  downloadingId.value = file.id;
+  downloadProgress.value = 0;
+  errorMessage.value = "";
+
+  try {
+    await props.client.downloadFile(file.id, (percent) => {
+      downloadProgress.value = percent;
+    });
+  } catch {
+    errorMessage.value = "文件下载失败，请检查网络连接后重试。";
+  } finally {
+    downloadingId.value = null;
   }
 }
 
@@ -179,6 +199,19 @@ onMounted(() => {
               {{ new Date(file.createdAt).toLocaleString("zh-CN") }}
             </div>
           </div>
+
+          <button
+            class="download-button"
+            type="button"
+            :disabled="downloadingId !== null"
+            @click="handleDownload(file)"
+          >
+            {{
+              downloadingId === file.id
+                ? `下载中 ${downloadProgress}%`
+                : "下载"
+            }}
+          </button>
         </div>
       </div>
     </div>
@@ -231,6 +264,26 @@ onMounted(() => {
 
 .upload-button:disabled {
   opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.download-button {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  color: #1d1d1f;
+  background: #f5f5f7;
+  border: 1px solid #e9e9ec;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.download-button:hover:not(:disabled) {
+  background: #e9e9ec;
+}
+
+.download-button:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -352,6 +405,7 @@ onMounted(() => {
 }
 
 .file-details {
+  flex: 1;
   min-width: 0;
 }
 
