@@ -10,6 +10,8 @@ import type {
   FileUploadCompleteResult,
   FileListResult,
   FileDownloadInitResult,
+  SharedFileMetadata,
+  GrantedFileShare,
 } from "@secure-transfer/shared";
 
 import type { RequestEnvelope } from "@secure-transfer/shared";
@@ -409,6 +411,80 @@ export class SecureTransferClient {
     }
 
     return result.files;
+  }
+
+  /** 将自己的文件共享给指定用户。 */
+  async grantFileShare(
+    fileId: string,
+    recipientUsername: string,
+  ): Promise<string> {
+    const result = await this.request("file.share.grant", {
+      fileId,
+      recipientUsername,
+    });
+
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("recipientUsername" in result) ||
+      typeof result.recipientUsername !== "string"
+    ) {
+      throw new Error("Invalid share response");
+    }
+
+    return result.recipientUsername;
+  }
+
+  /** 撤销指定用户的文件访问权限。 */
+  async revokeFileShare(
+    fileId: string,
+    recipientUsername: string,
+  ): Promise<void> {
+    const result = await this.request("file.share.revoke", {
+      fileId,
+      recipientUsername,
+    });
+
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("revoked" in result) ||
+      result.revoked !== true
+    ) {
+      throw new Error("Share not found or already revoked");
+    }
+  }
+
+  /** 获取其他用户共享给自己的文件。 */
+  async listReceivedShares(): Promise<SharedFileMetadata[]> {
+    const result = await this.request("file.share.received", {});
+
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("files" in result) ||
+      !Array.isArray(result.files)
+    ) {
+      throw new Error("Invalid received shares response");
+    }
+
+    return result.files as SharedFileMetadata[];
+  }
+
+  /** 获取自己已经授予的文件共享权限。 */
+  async listGrantedShares(): Promise<GrantedFileShare[]> {
+    const result = await this.request("file.share.granted", {});
+
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("shares" in result) ||
+      !Array.isArray(result.shares)
+    ) {
+      throw new Error("Invalid granted shares response");
+    }
+
+    return result.shares as GrantedFileShare[];
   }
 
   /** 终止正在等待的下载分块。 */

@@ -24,9 +24,11 @@ interface FileRow {
 
 interface DownloadSession {
   transferId: string;
+  fileId: string;
+  requesterId: string;
   handle: FileHandle;
   size: number;
-  lastActivity: number;
+  lastActivity: number; 
 }
 
 type DownloadResult<T> =
@@ -58,10 +60,25 @@ export async function initializeDownload(
   }
 
   const row = db.prepare(`
-    SELECT id, original_name, storage_name, size, sha256, created_at
-    FROM files
-    WHERE id = ? AND owner_id = ?
-  `).get(fileId, ownerId) as FileRow | undefined;
+    SELECT
+      f.id,
+      f.original_name,
+      f.storage_name,
+      f.size,
+      f.sha256,
+      f.created_at
+    FROM files AS f
+    WHERE f.id = ?
+      AND (
+        f.owner_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM file_shares AS s
+          WHERE s.file_id = f.id
+            AND s.recipient_id = ?
+        )
+      )
+  `).get(fileId, ownerId, ownerId) as FileRow | undefined;
 
   if (!row) {
     return failure("FILE_NOT_FOUND", "File not found");
@@ -100,6 +117,8 @@ export async function initializeDownload(
 
     downloads.set(socket, {
       transferId,
+      fileId,
+      requesterId: ownerId,
       handle,
       size: row.size,
       lastActivity: Date.now(),
@@ -130,6 +149,34 @@ export async function readDownloadChunk(
 
   if (!session || session.transferId !== transferId) {
     return failure("TRANSFER_NOT_FOUND", "Download not found");
+  }
+  
+  const authorized = db.prepare(`
+    SELECT 1
+    FROM files AS f
+    WHERE f.id = ?
+      AND (
+        f.owner_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM file_shares AS s
+          WHERE s.file_id = f.id
+            AND s.recipient_id = ?
+        )
+      )
+  `).get(
+    session.fileId,
+    session.requesterId,
+    session.requesterId,
+  );
+
+  if (!authorized) {
+    await closeDownload(socket, transferId);
+
+    return failure(
+      "ACCESS_REVOKED",
+      "File access has been revoked",
+    );
   }
 
   if (!Number.isSafeInteger(sequence) || sequence < 0) {

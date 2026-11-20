@@ -37,6 +37,17 @@ export interface FileMetadata {
   createdAt: string;
 }
 
+export interface SharedFileMetadata extends FileMetadata {
+  ownerUsername: string;
+}
+
+export interface GrantedFileShare {
+  fileId: string;
+  originalName: string;
+  recipientUsername: string;
+  createdAt: string;
+}
+
 /** 初始化文件上传。 */
 export interface FileUploadInitPayload {
   name: string;

@@ -26,6 +26,14 @@ import {
 
 import { deleteOwnedFile } from "../files/delete.js";
 
+import {
+  ShareError,
+  grantFileShare,
+  revokeFileShare,
+  listReceivedShares,
+  listGrantedShares,
+} from "../files/share.js";
+
 import type {
   RequestEnvelope,
   ResponseEnvelope,
@@ -810,6 +818,154 @@ export async function handleMessage(
           "INTERNAL_ERROR",
           "Failed to delete file",
         );
+      }
+
+      break;
+    }
+
+    case "file.share.grant": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("fileId" in payload) ||
+        typeof payload.fileId !== "string" ||
+        !("recipientUsername" in payload) ||
+        typeof payload.recipientUsername !== "string"
+      ) {
+        sendError(socket, request.id, "INVALID_REQUEST", "Invalid share request");
+        break;
+      }
+
+      try {
+        const result = grantFileShare(
+          user.id,
+          payload.fileId,
+          payload.recipientUsername,
+        );
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: result,
+        });
+      } catch (error) {
+        if (error instanceof ShareError) {
+          sendError(socket, request.id, error.code, error.message);
+        } else {
+          console.error("Grant share failed:", error);
+          sendError(socket, request.id, "INTERNAL_ERROR", "Failed to share file");
+        }
+      }
+
+      break;
+    }
+
+    case "file.share.revoke": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      const payload = request.payload;
+
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("fileId" in payload) ||
+        typeof payload.fileId !== "string" ||
+        !("recipientUsername" in payload) ||
+        typeof payload.recipientUsername !== "string"
+      ) {
+        sendError(socket, request.id, "INVALID_REQUEST", "Invalid revoke request");
+        break;
+      }
+
+      try {
+        const revoked = revokeFileShare(
+          user.id,
+          payload.fileId,
+          payload.recipientUsername,
+        );
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { revoked },
+        });
+      } catch (error) {
+        if (error instanceof ShareError) {
+          sendError(socket, request.id, error.code, error.message);
+        } else {
+          console.error("Revoke share failed:", error);
+          sendError(socket, request.id, "INTERNAL_ERROR", "Failed to revoke share");
+        }
+      }
+
+      break;
+    }
+
+    case "file.share.received": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      try {
+        const files = listReceivedShares(user.id);
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { files },
+        });
+      } catch (error) {
+        console.error("List received shares failed:", error);
+        sendError(socket, request.id, "INTERNAL_ERROR", "Failed to list shares");
+      }
+
+      break;
+    }
+
+    case "file.share.granted": {
+      const user = getSession(socket);
+
+      if (!user) {
+        sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
+        break;
+      }
+
+      try {
+        const shares = listGrantedShares(user.id);
+
+        sendResponse(socket, {
+          version: PROTOCOL_VERSION,
+          type: "response",
+          id: request.id,
+          ok: true,
+          payload: { shares },
+        });
+      } catch (error) {
+        console.error("List granted shares failed:", error);
+        sendError(socket, request.id, "INTERNAL_ERROR", "Failed to list shares");
       }
 
       break;

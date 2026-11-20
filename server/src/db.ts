@@ -38,10 +38,23 @@ export function initializeDatabase(): void {
         REFERENCES users(id)
         ON DELETE CASCADE
     );
-
+    
     CREATE INDEX IF NOT EXISTS idx_files_owner_created
       ON files(owner_id, created_at DESC);
   `);
+  
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS file_shares (
+      file_id TEXT NOT NULL,
+      recipient_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (file_id, recipient_id),
+      FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+      FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    );
 
+    CREATE INDEX IF NOT EXISTS idx_file_shares_recipient
+    ON file_shares(recipient_id, created_at DESC);
+  `);
   console.log("Database initialized");
 }
