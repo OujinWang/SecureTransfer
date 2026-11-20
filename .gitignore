@@ -9,3 +9,5 @@ server/data/
 *.tsbuildinfo
 *.md
 *.pdf
+# Local TLS certificates
+/certs/
