@@ -31,13 +31,12 @@ type UploadResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; message: string };
 
-const tempDirectory = fileURLToPath(
-  new URL("../../data/temp/", import.meta.url),
-);
+const dataDirectory =
+  process.env.DATA_DIR ??
+  fileURLToPath(new URL("../../data/", import.meta.url));
 
-const filesDirectory = fileURLToPath(
-  new URL("../../data/files/", import.meta.url),
-);
+const tempDirectory = join(dataDirectory, "temp");
+const filesDirectory = join(dataDirectory, "files");
 
 const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 const FRAME_HEADER_SIZE = 40;

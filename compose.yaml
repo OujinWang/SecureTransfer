@@ -1,0 +1,50 @@
+
+services:
+  secure-transfer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: secure-transfer:local
+    container_name: secure-transfer
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      PORT: "3000"
+
+    volumes:
+      - secure-transfer-data:/app/data
+      - ./certs:/app/certs:ro
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    pids_limit: 128
+
+    mem_limit: 512m
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const https=require('node:https');https.get({hostname:'127.0.0.1',port:3000,path:'/api/health',rejectUnauthorized:false},r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  secure-transfer-data:

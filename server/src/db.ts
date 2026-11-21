@@ -1,11 +1,13 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 
-const databasePath = fileURLToPath(
-  new URL("../data/secure-transfer.db", import.meta.url),
-);
+const dataDirectory =
+  process.env.DATA_DIR ??
+  fileURLToPath(new URL("../data/", import.meta.url));
+
+const databasePath = join(dataDirectory, "secure-transfer.db");
 
 mkdirSync(dirname(databasePath), { recursive: true });
 

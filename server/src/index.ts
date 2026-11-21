@@ -1,3 +1,7 @@
+import { readFile, stat } from "node:fs/promises";
+import { extname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { createServer } from "node:https";
 import { readFileSync } from "node:fs";
 import { WebSocket, WebSocketServer } from "ws";
@@ -31,8 +35,95 @@ const tlsOptions = {
 };
 
 // HTTP API 服务，统一处理请求并返回结构化响应。
+
+const clientDirectory = fileURLToPath(
+  new URL("../../client/dist/", import.meta.url),
+);
+
+const contentTypes: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".json": "application/json; charset=utf-8",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
+
+async function serveClient(
+  request: import("node:http").IncomingMessage,
+  response: import("node:http").ServerResponse,
+): Promise<void> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.writeHead(405).end();
+    return;
+  }
+
+  let pathname: string;
+
+  try {
+    const url = new URL(request.url ?? "/", "https://localhost");
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+
+  if (pathname.includes("\0") || pathname.includes("\\")) {
+    response.writeHead(400).end();
+    return;
+  }
+
+  const root = resolve(clientDirectory);
+  const requestedPath = resolve(root, `.${pathname}`);
+
+  if (
+    requestedPath !== root &&
+    !requestedPath.startsWith(root + sep)
+  ) {
+    response.writeHead(403).end();
+    return;
+  }
+
+  let target = requestedPath;
+
+  try {
+    const info = await stat(target).catch(() => undefined);
+
+    if (!info?.isFile()) {
+      if (extname(pathname)) {
+        response.writeHead(404).end();
+        return;
+      }
+
+      target = resolve(root, "index.html");
+    }
+
+    const content = await readFile(target);
+
+    response.writeHead(200, {
+      "Content-Type":
+        contentTypes[extname(target)] ??
+        "application/octet-stream",
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-store",
+    });
+
+    response.end(
+      request.method === "HEAD" ? undefined : content,
+    );
+  } catch {
+    response.writeHead(404).end();
+  }
+}
+
+// HTTPS API 与前端页面共用同一个服务。
 const server = createServer(tlsOptions, (request, response) => {
-  response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("X-Content-Type-Options", "nosniff");
 
   if (request.method === "GET" && request.url === "/api/health") {
@@ -41,20 +132,64 @@ const server = createServer(tlsOptions, (request, response) => {
       type: "response",
       id: "health",
       ok: true,
-      payload: { status: "ok", service: "secure-transfer-server" },
+      payload: {
+        status: "ok",
+        service: "secure-transfer-server",
+      },
     };
-    response.writeHead(200).end(JSON.stringify(result));
+
+    response.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+    }).end(JSON.stringify(result));
+
     return;
   }
 
-  const result: ResponseEnvelope = {
+  if (request.url?.startsWith("/api/")) {
+    const result: ResponseEnvelope = {
+      version: PROTOCOL_VERSION,
+      type: "response",
+      id: "unknown",
+      ok: false,
+      error: {
+        code: "NOT_FOUND",
+        message: "Route not found",
+      },
+    };
+
+    response.writeHead(404, {
+      "Content-Type": "application/json; charset=utf-8",
+    }).end(JSON.stringify(result));
+
+    return;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    void serveClient(request, response).catch((error) => {
+      console.error("Static file serving failed:", error);
+
+      if (!response.headersSent) {
+        response.writeHead(500);
+      }
+
+      response.end();
+    });
+
+    return;
+  }
+
+  response.writeHead(404, {
+    "Content-Type": "application/json; charset=utf-8",
+  }).end(JSON.stringify({
     version: PROTOCOL_VERSION,
     type: "response",
     id: "unknown",
     ok: false,
-    error: { code: "NOT_FOUND", message: "Route not found" },
-  };
-  response.writeHead(404).end(JSON.stringify(result));
+    error: {
+      code: "NOT_FOUND",
+      message: "Route not found",
+    },
+  } satisfies ResponseEnvelope));
 });
 
 /**
@@ -62,10 +197,17 @@ const server = createServer(tlsOptions, (request, response) => {
  * 与 HTTP API 共享监听端口，使用 /ws 作为连接入口。
  * 单条消息大小上限为 64 KiB。
  */
-const allowedOrigins = new Set([
-  "https://localhost:5173",
-  "https://127.0.0.1:5173",
-]);
+const allowedOrigins = new Set(
+  process.env.NODE_ENV === "production"
+    ? [
+        "https://localhost:3000",
+        "https://127.0.0.1:3000",
+      ]
+    : [
+        "https://localhost:5173",
+        "https://127.0.0.1:5173",
+      ],
+);
 
 const MAX_CONNECTIONS_PER_IP = 5;
 const MAX_HANDSHAKES_PER_MINUTE = 10;
@@ -354,6 +496,11 @@ wss.on("close", () => {
 initializeDatabase();
 
 // 监听本机回环地址和指定端口。
-server.listen(port, "127.0.0.1", () => {
-  console.log(`SecureTransfer API listening at https://127.0.0.1:${port}`);
+const host =
+  process.env.NODE_ENV === "production"
+    ? "0.0.0.0"
+    : "127.0.0.1";
+
+server.listen(port, host, () => {
+  console.log(`SecureTransfer listening on ${host}:${port}`);
 });
