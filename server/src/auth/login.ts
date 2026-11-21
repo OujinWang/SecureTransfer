@@ -10,6 +10,7 @@ interface UserRow {
   username: string;
   password_hash: Buffer;
   salt: Buffer;
+  is_vip: number;
 }
 
 type LoginResult =
@@ -18,6 +19,7 @@ type LoginResult =
       user: {
         id: string;
         username: string;
+        isVip: boolean;
       };
     }
   | {
@@ -60,7 +62,7 @@ export async function loginUser(
   }
 
   const user = db.prepare(`
-    SELECT id, username, password_hash, salt
+    SELECT id, username, password_hash, salt, is_vip
     FROM users
     WHERE username = ?
   `).get(username) as UserRow | undefined;
@@ -100,6 +102,7 @@ export async function loginUser(
     user: {
       id: user.id,
       username: user.username,
+      isVip: user.is_vip === 1,
     },
   };
 }

@@ -15,6 +15,7 @@ const showPassword = ref(false);
 const submitting = ref(false);
 const errorMessage = ref("");
 const successMessage = ref("");
+const isVip = ref(false);
 
 /** 校验注册表单并提交请求。 */
 async function handleRegister(): Promise<void> {
@@ -44,6 +45,7 @@ async function handleRegister(): Promise<void> {
     const result = await props.client.request("auth.register", {
       username: username.value,
       password: password.value,
+      isVip: isVip.value,
     });
 
     if (
@@ -89,8 +91,38 @@ async function handleRegister(): Promise<void> {
         <p>注册后即可使用安全文件传输服务。</p>
       </div>
     </div>
-
+    
     <form class="auth-form" @submit.prevent="handleRegister">
+      <div class="field">
+        <label>注册身份</label>
+
+        <div class="account-type-selector">
+          <button
+            type="button"
+            class="account-type-option"
+            :class="{ selected: !isVip }"
+            :disabled="disabled || submitting"
+            :aria-pressed="!isVip"
+            @click="isVip = false"
+          >
+            <span class="account-type-name">普通用户</span>
+            <span class="account-type-speed">256 KiB/s</span>
+          </button>
+
+          <button
+            type="button"
+            class="account-type-option vip"
+            :class="{ selected: isVip }"
+            :disabled="disabled || submitting"
+            :aria-pressed="isVip"
+            @click="isVip = true"
+          >
+            <span class="account-type-name">✦ VIP 用户</span>
+            <span class="account-type-speed">1 MiB/s</span>
+          </button>
+        </div>
+      </div>
+      
       <div class="field">
         <label for="register-username">用户名</label>
         <input

@@ -25,6 +25,7 @@ export function initializeDatabase(): void {
       username TEXT NOT NULL COLLATE NOCASE UNIQUE,
       password_hash BLOB NOT NULL,
       salt BLOB NOT NULL,
+      is_vip INTEGER NOT NULL DEFAULT 0 CHECK (is_vip IN (0, 1)),
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -58,5 +59,19 @@ export function initializeDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_file_shares_recipient
     ON file_shares(recipient_id, created_at DESC);
   `);
+
+  // VIP 字段。
+  const userColumns = db
+    .prepare("PRAGMA table_info(users)")
+    .all() as Array<{ name: string }>;
+
+  if (!userColumns.some((column) => column.name === "is_vip")) {
+    db.exec(`
+      ALTER TABLE users
+      ADD COLUMN is_vip INTEGER NOT NULL DEFAULT 0
+      CHECK (is_vip IN (0, 1))
+    `);
+  }
+
   console.log("Database initialized");
 }

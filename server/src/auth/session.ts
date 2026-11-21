@@ -4,6 +4,7 @@ import type WebSocket from "ws";
 export interface AuthenticatedUser {
   id: string;
   username: string;
+  isVip: boolean;
 }
 
 interface SessionRecord {

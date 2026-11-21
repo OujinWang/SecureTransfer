@@ -654,6 +654,7 @@ export class SecureTransferClient {
   async restoreSession(): Promise<{
     id: string;
     username: string;
+    isVip: boolean;
   } | null> {
     const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
 
@@ -672,7 +673,9 @@ export class SecureTransferClient {
         !("id" in result) ||
         typeof result.id !== "string" ||
         !("username" in result) ||
-        typeof result.username !== "string"
+        typeof result.username !== "string" ||
+        !("isVip" in result) ||
+          typeof result.isVip !== "boolean"
       ) {
         throw new Error("Invalid session response");
       }
@@ -680,6 +683,7 @@ export class SecureTransferClient {
       return {
         id: result.id,
         username: result.username,
+        isVip: result.isVip,
       };
     } catch {
       sessionStorage.removeItem(SESSION_TOKEN_KEY);

@@ -14,7 +14,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
-  authenticated: [user: { id: string; username: string }];
+  authenticated: [user: { id: string; username: string; isVip: boolean}];
 }>();
 
 type AuthMode = "login" | "register";

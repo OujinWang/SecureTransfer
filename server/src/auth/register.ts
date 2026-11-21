@@ -11,6 +11,7 @@ type RegisterResult =
       user: {
         id: string;
         username: string;
+        isVip: boolean;
       };
     }
   | {
@@ -37,6 +38,15 @@ export async function registerUser(
 
   const data = payload as Record<string, unknown>;
   const { username, password } = data;
+  const isVip = data.isVip ?? false;
+
+  if (typeof isVip !== "boolean") {
+    return {
+      ok: false,
+      code: "INVALID_INPUT",
+      message: "Invalid user type",
+    };
+  }
 
   if (
     typeof username !== "string" ||
@@ -68,10 +78,10 @@ export async function registerUser(
   const passwordHash = await deriveKey(password, salt, 64);
 
   const result = db.prepare(`
-    INSERT INTO users (id, username, password_hash, salt)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO users (id, username, password_hash, salt, is_vip)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(username) DO NOTHING
-  `).run(id, username, passwordHash, salt);
+  `).run(id, username, passwordHash, salt, isVip ? 1 : 0);
 
   if (result.changes === 0) {
     return {
@@ -83,6 +93,6 @@ export async function registerUser(
 
   return {
     ok: true,
-    user: { id, username },
+    user: { id, username, isVip },
   };
 }

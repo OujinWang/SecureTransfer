@@ -10,6 +10,7 @@ const connected = ref(false);
 interface AuthenticatedUser {
   id: string;
   username: string;
+  isVip: boolean;
 }
 
 const currentUser = ref<AuthenticatedUser | null>(null);
@@ -95,9 +96,18 @@ onUnmounted(() => {
 
           <template v-if="currentUser">
 
-            <span class="nav-username">
-              {{ currentUser.username }}
-            </span>
+            <div class="nav-user-info">
+              <span class="nav-username">
+                {{ currentUser.username }}
+              </span>
+
+              <span
+                class="user-badge"
+                :class="{ 'user-badge-vip': currentUser.isVip }"
+              >
+                {{ currentUser.isVip ? "✦ VIP" : "普通用户" }}
+              </span>
+            </div>
 
             <button
               class="logout-button"
@@ -299,6 +309,33 @@ button {
   color: #1d1d1f;
   font-size: 13px;
   font-weight: 600;
+}
+
+.nav-user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #dedee2;
+  background: #f1f1f3;
+  color: #77777d;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.user-badge-vip {
+  border-color: #e5c477;
+  background: #fff3cf;
+  color: #9a6700;
 }
 
 .logout-button {

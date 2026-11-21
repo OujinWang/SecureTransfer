@@ -40,6 +40,8 @@ import type {
 } from "@secure-transfer/shared";
 import type { RawData, WebSocket } from "ws";
 
+import { limitBandwidth } from "../files/bandwidth.js";
+
 type ParseResult =
   | { ok: true; request: RequestEnvelope }
   | { ok: false; code: string; message: string };
@@ -159,6 +161,12 @@ export async function handleMessage(
 
       if (!result.ok) {
         sendError(socket, "unknown", result.code, result.message);
+        return;
+      }
+
+      await limitBandwidth(user.id, user.isVip, buffer.length - 40);
+
+      if (socket.readyState !== 1 || getSession(socket)?.id !== user.id) {
         return;
       }
 
@@ -666,7 +674,9 @@ export async function handleMessage(
     }
 
     case "file.download.chunk": {
-      if (!getSession(socket)) {
+      const user = getSession(socket);
+
+      if (!user) {
         sendError(socket, request.id, "UNAUTHORIZED", "Authentication required");
         break;
       }
@@ -698,6 +708,12 @@ export async function handleMessage(
         }
 
         const { transferId, sequence, chunk } = result.data;
+
+        await limitBandwidth(user.id, user.isVip, chunk.length);
+
+        if (socket.readyState !== 1 || getSession(socket)?.id !== user.id) {
+          break;
+        }
 
         const frame = Buffer.allocUnsafe(40 + chunk.length);
         frame.write(transferId, 0, 36, "ascii");

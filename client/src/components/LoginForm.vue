@@ -13,7 +13,9 @@ const showPassword = ref(false);
 const submitting = ref(false);
 
 const emit = defineEmits<{
-  authenticated: [user: { id: string; username: string }];
+  authenticated: [
+    user: { id: string; username: string; isVip: boolean }
+  ];
 }>();
 
 const errorMessage = ref("");
@@ -41,7 +43,9 @@ async function handleLogin(): Promise<void> {
       !("id" in result) ||
       typeof result.id !== "string" ||
       !("username" in result) ||
-      typeof result.username !== "string"
+      typeof result.username !== "string" ||
+      !("isVip" in result) ||
+      typeof result.isVip !== "boolean"
     ) {
       throw new Error("Invalid login response");
     }
@@ -51,6 +55,7 @@ async function handleLogin(): Promise<void> {
     emit("authenticated", {
       id: result.id,
       username: result.username,
+      isVip: result.isVip,
     });
     
   } catch (error) {

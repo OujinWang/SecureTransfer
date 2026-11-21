@@ -165,3 +165,74 @@
   color: #3a3a3c;
   background: #f1f1f3;
 }
+
+/* 注册身份选择区域 */
+.auth-form .account-type-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+}
+
+/* 身份选择卡片 */
+.auth-form .account-type-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+
+  min-height: 78px;
+  padding: 12px 14px;
+
+  font-family: inherit;
+  line-height: 1.4;
+  text-align: left;
+
+  background: #fafafa;
+  border: 1px solid #dcdce0;
+  border-radius: 10px;
+  cursor: pointer;
+
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.auth-form .account-type-option.selected {
+  border-color: #86868b;
+  background: #f5f5f7;
+}
+
+.auth-form .account-type-option.vip.selected {
+  border-color: #d6a342;
+  background: #fff8e8;
+}
+
+/* 身份名称 */
+.auth-form .account-type-name {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #3a3a3c;
+}
+
+.auth-form .account-type-option.vip .account-type-name {
+  color: #a16c0a;
+}
+
+/* 带宽说明 */
+.auth-form .account-type-speed {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: #86868b;
+}
+
+.auth-form .account-type-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
